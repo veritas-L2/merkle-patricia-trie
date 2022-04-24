@@ -34,7 +34,6 @@ func NewProofDB() *ProofDB {
 func (w *ProofDB) Put(key []byte, value []byte) error {
 	keyS := fmt.Sprintf("%x", key)
 	w.kv[keyS] = value
-	fmt.Printf("put key: %x, value: %x\n", key, value)
 	return nil
 }
 
@@ -62,18 +61,18 @@ func (w *ProofDB) Get(key []byte) ([]byte, error) {
 func (t *Trie) Prove(key []byte) (Proof, bool) {
 	proof := NewProofDB()
 	node := t.root
-	nibbles := FromBytes(key)
+	nibbles := newNibbles(key)
 
 	for {
-		proof.Put(Hash(node), Serialize(node))
-
-		if IsEmptyNode(node) {
+		if node == nil {
 			return nil, false
 		}
 
+		proof.Put(node.hash(), serializeNode(node))
+
 		if leaf, ok := node.(*LeafNode); ok {
-			matched := PrefixMatchedLen(leaf.Path, nibbles)
-			if matched != len(leaf.Path) || matched != len(nibbles) {
+			matched := commonPrefixLength(leaf.path, nibbles)
+			if matched != len(leaf.path) || matched != len(nibbles) {
 				return nil, false
 			}
 
@@ -82,25 +81,25 @@ func (t *Trie) Prove(key []byte) (Proof, bool) {
 
 		if branch, ok := node.(*BranchNode); ok {
 			if len(nibbles) == 0 {
-				return proof, branch.HasValue()
+				return proof, branch.value != nil
 			}
 
 			b, remaining := nibbles[0], nibbles[1:]
 			nibbles = remaining
-			node = branch.Branches[b]
+			node = branch.branches[b]
 			continue
 		}
 
 		if ext, ok := node.(*ExtensionNode); ok {
-			matched := PrefixMatchedLen(ext.Path, nibbles)
+			matched := commonPrefixLength(ext.path, nibbles)
 			// E 01020304
 			//   010203
-			if matched < len(ext.Path) {
+			if matched < len(ext.path) {
 				return nil, false
 			}
 
 			nibbles = nibbles[matched:]
-			node = ext.Next
+			node = ext.next
 			continue
 		}
 

@@ -1,0 +1,12 @@
+1. Implement PutProofNode.
+2. Implement PutProofNode, a method of Trie that can only be called if mode ==
+   MODE_VERIFY_FRAUD_PROOF. - Done
+3. Implement GetPreStateAndPostState - Done.
+   a. Write skeleton implementation - Done.
+   b. Implement getStrayTrieRootPath - Done.
+   c. Implement getProofPairs - Done.
+4. Implement tryLoadPreState - Done.
+5. Implement tryLoadPostStateProof - Partially done.
+6. Implement WasPostStateProofsValid and WasPreStateComplete - Done (subsumed into other functions).
+7. Write integration tests for the 'Generate Fraud Proof Mode' to 'Verify Fraud Proof Mode' sequence flow.
+8. Define protobuf message types for PreStateAndPostState.

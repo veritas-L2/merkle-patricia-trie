@@ -1,7 +1,6 @@
 package mpt
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/trie"
@@ -19,24 +18,21 @@ func TestEthProof(t *testing.T) {
 	val, err := trie.VerifyProof(rootHash, []byte{1, 2, 3}, w)
 	require.NoError(t, err)
 	require.Equal(t, []byte("hello"), val)
-	fmt.Printf("root hash: %x\n", rootHash)
 }
 
 func TestMyTrie(t *testing.T) {
-	tr := NewTrie()
+	tr := NewTrie(MODE_NORMAL)
 	tr.Put([]byte{1, 2, 3}, []byte("hello"))
 	tr.Put([]byte{1, 2, 3, 4, 5}, []byte("world"))
 	n0, ok := tr.root.(*ExtensionNode)
 	require.True(t, ok)
-	n1, ok := n0.Next.(*BranchNode)
+	_, ok = n0.next.(*BranchNode)
 	require.True(t, ok)
-	fmt.Printf("n0 hash: %x, Serialized: %x\n", n0.Hash(), n0.Serialize())
-	fmt.Printf("n1 hash: %x, Serialized: %x\n", n1.Hash(), n1.Serialize())
 }
 
 func TestProveAndVerifyProof(t *testing.T) {
 	t.Run("should not generate proof for non-exist key", func(t *testing.T) {
-		tr := NewTrie()
+		tr := NewTrie(MODE_NORMAL)
 		tr.Put([]byte{1, 2, 3}, []byte("hello"))
 		tr.Put([]byte{1, 2, 3, 4, 5}, []byte("world"))
 		notExistKey := []byte{1, 2, 3, 4}
@@ -45,7 +41,7 @@ func TestProveAndVerifyProof(t *testing.T) {
 	})
 
 	t.Run("should generate a proof for an existing key, the proof can be verified with the merkle root hash", func(t *testing.T) {
-		tr := NewTrie()
+		tr := NewTrie(MODE_NORMAL)
 		tr.Put([]byte{1, 2, 3}, []byte("hello"))
 		tr.Put([]byte{1, 2, 3, 4, 5}, []byte("world"))
 
@@ -53,7 +49,7 @@ func TestProveAndVerifyProof(t *testing.T) {
 		proof, ok := tr.Prove(key)
 		require.True(t, ok)
 
-		rootHash := tr.Hash()
+		rootHash := tr.RootHash()
 
 		// verify the proof with the root hash, the key in question and its proof
 		val, err := VerifyProof(rootHash, key, proof)
@@ -64,12 +60,12 @@ func TestProveAndVerifyProof(t *testing.T) {
 	})
 
 	t.Run("should fail the verification of the trie was updated", func(t *testing.T) {
-		tr := NewTrie()
+		tr := NewTrie(MODE_NORMAL)
 		tr.Put([]byte{1, 2, 3}, []byte("hello"))
 		tr.Put([]byte{1, 2, 3, 4, 5}, []byte("world"))
 
 		// the hash was taken before the trie was updated
-		rootHash := tr.Hash()
+		rootHash := tr.RootHash()
 
 		// the proof was generated after the trie was updated
 		tr.Put([]byte{5, 6, 7}, []byte("trie"))
