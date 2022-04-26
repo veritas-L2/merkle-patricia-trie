@@ -132,7 +132,7 @@ func TestPutProofNode(t *testing.T) {
 		_ = rightRightBranch.branches[2].(*LeafNode)
 
 		// Build trie2.
-		trie2 := NewTrie(MODE_VERIFY_FRAUD_PROOF)
+		trie2 := NewTrie(MODE_PRE_VERIFY_FRAUD_PROOF)
 
 		// Create PreState
 		preState := newPreState()
@@ -147,11 +147,12 @@ func TestPutProofNode(t *testing.T) {
 		preState.phPairs = append(preState.phPairs, PHPair{path: newNibbles([]byte{02, 00}), hash: rightLeftLeaf.hash()})
 		preState.phPairs = append(preState.phPairs, PHPair{path: newNibbles([]byte{02, 16}), hash: rightExtension.hash()})
 
-		trie2.LoadPreAndPostState(
+		err := trie2.LoadPreAndPostState(
 			preState,
 			newPostStateProofs(),
 			trie1.RootHash(),
 		)
+		require.NoError(t, err)
 	})
 }
 
@@ -189,7 +190,7 @@ func TestGetProofPairs(t *testing.T) {
 	rightRightRightLeaf := rightRightBranch.branches[2].(*LeafNode)
 
 	// Build shadowTrie.
-	shadowTrie := NewTrie(MODE_VERIFY_FRAUD_PROOF)
+	shadowTrie := NewTrie(MODE_PRE_VERIFY_FRAUD_PROOF)
 
 	// Insert read key-value pairs: leftRightLeaf.value and rightBranch.value
 	shadowTrie.Put([]byte{00, 00, 00, 00, 01, 00, 00, 00}, leftRightLeaf.value)

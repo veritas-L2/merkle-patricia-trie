@@ -65,12 +65,12 @@ type Trie struct {
 type TrieMode = uint
 
 const (
-	MODE_NORMAL               TrieMode = 0
-	MODE_GENERATE_FRAUD_PROOF TrieMode = 1
-	MODE_LOAD_PRE_STATE       TrieMode = 2
-	MODE_VERIFY_FRAUD_PROOF   TrieMode = 3
-	MODE_FAILED_FRAUD_PROOF   TrieMode = 4
-	MODE_DEAD                 TrieMode = 5
+	MODE_NORMAL                 TrieMode = 0
+	MODE_GENERATE_FRAUD_PROOF   TrieMode = 1
+	MODE_PRE_VERIFY_FRAUD_PROOF TrieMode = 2
+	MODE_VERIFY_FRAUD_PROOF     TrieMode = 3
+	MODE_FAILED_FRAUD_PROOF     TrieMode = 4
+	MODE_DEAD                   TrieMode = 5
 )
 
 // KVPair stands for "Key, Value Pair". KVPairs are inserted into Trie using Put.
@@ -114,7 +114,7 @@ func newPostStateProofs() PostStateProofs {
 // NewTrie returns an empty Trie in the specified mode. A Trie, once constructed, cannot have its
 // mode explicitly changed.
 func NewTrie(mode TrieMode) *Trie {
-	if mode != MODE_NORMAL && mode != MODE_GENERATE_FRAUD_PROOF && mode != MODE_VERIFY_FRAUD_PROOF {
+	if mode != MODE_NORMAL && mode != MODE_GENERATE_FRAUD_PROOF && mode != MODE_VERIFY_FRAUD_PROOF && mode != MODE_PRE_VERIFY_FRAUD_PROOF {
 		panic("attempted to create a new trie with an invalid mode.")
 	}
 
@@ -131,7 +131,7 @@ func (t *Trie) Get(key []byte) []byte {
 	}
 
 	switch true {
-	case t.mode == MODE_NORMAL || t.mode == MODE_LOAD_PRE_STATE:
+	case t.mode == MODE_NORMAL || t.mode == MODE_PRE_VERIFY_FRAUD_PROOF:
 		value, encounteredProofNode := t.getNormally(key)
 		if encounteredProofNode {
 			panic("unreachable code")
@@ -196,7 +196,7 @@ func (t *Trie) Get(key []byte) []byte {
 //
 // # Errors
 func (t *Trie) Put(key []byte, value []byte) error {
-	if t.mode != MODE_NORMAL && t.mode != MODE_GENERATE_FRAUD_PROOF && t.mode != MODE_VERIFY_FRAUD_PROOF {
+	if t.mode != MODE_NORMAL && t.mode != MODE_GENERATE_FRAUD_PROOF && t.mode != MODE_PRE_VERIFY_FRAUD_PROOF && t.mode != MODE_VERIFY_FRAUD_PROOF {
 		panic("")
 	}
 
@@ -376,7 +376,7 @@ func (t *Trie) Put(key []byte, value []byte) error {
 				continue
 			}
 		case *ProofNode:
-			if t.mode != MODE_VERIFY_FRAUD_PROOF {
+			if t.mode != MODE_PRE_VERIFY_FRAUD_PROOF && t.mode != MODE_VERIFY_FRAUD_PROOF {
 				panic("found a ProofNode in a Trie that is not in MODE_VERIFY_FRAUD_PROOF")
 			}
 
@@ -460,7 +460,10 @@ func (t *Trie) GetPreStateAndPostStateProofs() (PreState, PostStateProofs) {
 		strayTrieRootPath := getStrayTrieRootPath(kvPair.key, shadowTrie)
 
 		// 1.2. Update shadowTrie with the kvPair.
-		shadowTrie.Put(kvPair.key, kvPair.value)
+		err := shadowTrie.Put(kvPair.key, kvPair.value)
+		if err != nil {
+			panic("unreachable code")
+		}
 
 		// 1.3. Collect 'Proof Pairs', phPairs and kvPairs in the strayTrie that are either siblings of
 		// the node that contains kvPair, or a direct child of its ancestors.
@@ -475,10 +478,16 @@ func (t *Trie) GetPreStateAndPostStateProofs() (PreState, PostStateProofs) {
 
 			// 1.5. Update shadowTrie with phPairs and proofKVPairs.
 			for _, phPair := range phPairs {
-				shadowTrie.putProofNode(phPair.path, phPair.hash)
+				err := shadowTrie.putProofNode(phPair.path, phPair.hash)
+				if err != nil {
+					panic("unreachable code")
+				}
 			}
 			for _, proofKVPair := range proofKVPairs {
-				shadowTrie.Put(proofKVPair.key, proofKVPair.value)
+				err := shadowTrie.Put(proofKVPair.key, proofKVPair.value)
+				if err != nil {
+					panic("unreachable code")
+				}
 			}
 		}
 
@@ -493,7 +502,10 @@ func (t *Trie) GetPreStateAndPostStateProofs() (PreState, PostStateProofs) {
 		strayTrieRootPath := getStrayTrieRootPath(kvPair.key, shadowTrie)
 
 		// 2.2. Update shadowTrie with the kvPair
-		shadowTrie.Put(kvPair.key, kvPair.value)
+		err := shadowTrie.Put(kvPair.key, kvPair.value)
+		if err != nil {
+			panic("unreachable code")
+		}
 
 		// 2.3. Collect Proof Pairs.
 		if !reflect.DeepEqual(strayTrieRootPath, newNibbles(kvPair.key)) {
@@ -506,10 +518,16 @@ func (t *Trie) GetPreStateAndPostStateProofs() (PreState, PostStateProofs) {
 
 			// Update shadowTrie with phPairs and proofKVPairs
 			for _, phPair := range phPairs {
-				shadowTrie.putProofNode(phPair.path, phPair.hash)
+				err := shadowTrie.putProofNode(phPair.path, phPair.hash)
+				if err != nil {
+					panic("unreachable code")
+				}
 			}
 			for _, proofKVPair := range proofKVPairs {
-				shadowTrie.Put(proofKVPair.key, proofKVPair.value)
+				err := shadowTrie.Put(proofKVPair.key, proofKVPair.value)
+				if err != nil {
+					panic("unreachable code")
+				}
 			}
 		}
 	}
@@ -520,12 +538,13 @@ func (t *Trie) GetPreStateAndPostStateProofs() (PreState, PostStateProofs) {
 	return preState, postStateProofs
 }
 
-/// LoadPreAndPostState prepares a Trie to be used in MODE_VERIFY_FRAUD_PROOF.
-///
-/// # Panics
-///Panics if called when t.mode != MODE_VERIFY_FRAUD_PROOF.
+// LoadPreAndPostState prepares a Trie to be used in verifying a fraud proof. Trie will be in MODE_PRE_VERIFY_FRAUD_PROOF by the end of this
+// call if preStateError is nil.
+//
+// # Panics
+// Panics if called when t.mode != MODE_PRE_VERIFY_FRAUD_PROOF.
 func (t *Trie) LoadPreAndPostState(preState PreState, postStateProofs PostStateProofs, expectedPreStateHash []byte) (preStateError error) {
-	if t.mode != MODE_VERIFY_FRAUD_PROOF {
+	if t.mode != MODE_PRE_VERIFY_FRAUD_PROOF {
 		panic("")
 	}
 
@@ -537,13 +556,14 @@ func (t *Trie) LoadPreAndPostState(preState PreState, postStateProofs PostStateP
 		return err
 	}
 
-	if reflect.DeepEqual(t.RootHash(), expectedPreStateHash) {
+	if !reflect.DeepEqual(t.RootHash(), expectedPreStateHash) {
 		t.failedFraudProofReason = fmt.Errorf("RootHash after PreState insertion does not match expectedPreStateHash")
 		t.mode = MODE_FAILED_FRAUD_PROOF
 		return t.failedFraudProofReason
 	}
 
 	t.postStateProofs = postStateProofs
+	t.mode = MODE_VERIFY_FRAUD_PROOF
 
 	return nil
 }
@@ -707,7 +727,7 @@ func (t *Trie) getNormally(key []byte) (value []byte, encounteredProofNode bool)
 // 2. Panics if the Trie contains a node that cannot be deserialized into either a LeafNode, BranchNode, ExtensionNode,
 //    or ProofNode.
 func (t *Trie) putProofNode(path []Nibble, hash []byte) error {
-	if t.mode != MODE_VERIFY_FRAUD_PROOF && t.mode != MODE_LOAD_PRE_STATE {
+	if t.mode != MODE_VERIFY_FRAUD_PROOF && t.mode != MODE_PRE_VERIFY_FRAUD_PROOF {
 		panic("")
 	}
 
@@ -931,7 +951,7 @@ func (t *Trie) putProofNode(path []Nibble, hash []byte) error {
 }
 
 func (t *Trie) tryLoadPreState(preState PreState) error {
-	if t.mode != MODE_VERIFY_FRAUD_PROOF {
+	if t.mode != MODE_PRE_VERIFY_FRAUD_PROOF {
 		panic("")
 	}
 
@@ -943,10 +963,11 @@ func (t *Trie) tryLoadPreState(preState PreState) error {
 	}
 
 	for _, kvPair := range preState.kvPairs {
-		t.Put(kvPair.key, kvPair.value)
+		err := t.Put(kvPair.key, kvPair.value)
+		if err != nil {
+			return err
+		}
 	}
-
-	t.mode = MODE_VERIFY_FRAUD_PROOF
 
 	return nil
 }
@@ -968,7 +989,10 @@ func (t *Trie) tryLoadPostStateProof(postStateProof PostStateProof, putKey []byt
 		}
 	}
 	for _, proofKVPair := range postStateProof.proofKVPairs {
-		t.Put(proofKVPair.key, proofKVPair.value)
+		err := t.Put(proofKVPair.key, proofKVPair.value)
+		if err != nil {
+			return err
+		}
 	}
 
 	// 3. Check if root hash is still the same after loading postStateProof.
