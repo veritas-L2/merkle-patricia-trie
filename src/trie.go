@@ -32,7 +32,7 @@ import (
 //    Op 5. serializedPreState, serializedPostState = preState.Serialize(), postState.Serialize()
 //
 // 3. Verify fraud proof mode:
-//    Op 1. NewTrie(mode: VERIFY_FRAUD_PROOF)
+//    Op 1. NewTrie(mode: MODE_PRE_VERIFY_FRAUD_PROOF)
 //    Op 2. preState, postStateProofs = DeserializePreState(serializedPreState),
 //                                                       DeserializePostStateProofs(serializedPostState)
 //    Op 3. preStateErr := LoadPreStateAndPostState(preState, postState)
