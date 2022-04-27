@@ -15,7 +15,7 @@ import (
 //
 // # Usage
 //
-// 1. Normal mode:
+// 1. MODE_NORMAL:
 //    Op 1. NewTrie(mode: MODE_NORMAL)
 //    Op 2. LoadFromDB()
 //    Op 3. *Get()/Put()
@@ -24,18 +24,19 @@ import (
 //            then SaveToDB()
 //            else go to 'Generate fraud proof mode'
 //
-// 2. Generate fraud proof mode:
+// 2. MODE_GENERATE_FRAUD_PROOF:
 //    Op 1. NewTrie(mode: MODE_GENERATE_FRAUD_PROOF)
 //    Op 2. LoadFromDB()
 //    Op 3. *Get()/Put()
 //    Op 4. preState, postStateProofs = GetPreAndPostStateProofs()
 //    Op 5. serializedPreState, serializedPostState = preState.Serialize(), postState.Serialize()
 //
-// 3. Verify fraud proof mode:
+// 3. MODE_PRE_VERIFY_FRAUD_PROOF:
 //    Op 1. NewTrie(mode: MODE_PRE_VERIFY_FRAUD_PROOF)
 //    Op 2. preState, postStateProofs = DeserializePreState(serializedPreState),
 //                                                       DeserializePostStateProofs(serializedPostState)
 //    Op 3. preStateErr := LoadPreStateAndPostState(preState, postState)
+//      -- Beyond this point, the Trie has been automatically placed into MODE_VERIFY_FRAUD_PROOF --
 //	  Op 4. if preStateErr != nil
 //          then break (fraud proof unsuccessful)
 //		    else continue
@@ -53,10 +54,15 @@ type Trie struct {
 	root Node
 	mode TrieMode
 
-	// readSet, postStateProofs, and writeList are non-Nil only when mode == MODE_GENERATE_FRAUD_PROOF.
-	readSet         []KVPair
-	writeList       []KVPair
-	postStateProofs PostStateProofs
+	// readSet records the `Get`s served by Trie in order as KVPairs. It is non-Nil only when mode == MODE_GENERATE_FRAUD_PROOF.
+	readSet []KVPair
+
+	// writeList records the `Put`s served by Trie in order as KVPairs. It is non-nil only when mode == MODE_GENERATE_FRAUD_PROOF.
+	writeList []KVPair
+
+	// postStateProofs stores the slice of postStateProofs that are used to authenticate intermediate postStates as they
+	// are generated in calls to `Put` during fraud proof verification. It is non-Nil only when mode == MODE_VERIFY_FRAUD_PROOF.
+	postStateProofs []PostStateProof
 
 	// failedFraudProofReason is non-Nil only when mode == MODE_FAILED_FRAUD_PROOF.
 	failedFraudProofReason error
@@ -65,13 +71,56 @@ type Trie struct {
 type TrieMode = uint
 
 const (
-	MODE_NORMAL                 TrieMode = 0
-	MODE_GENERATE_FRAUD_PROOF   TrieMode = 1
+	// MODE_NORMAL tries are used:
+	// 1. By sequencers, to produce new batches of transactions and commit the world state side effects
+	//    of said transactions into persistent storage using SaveToDB, and
+	// 2. By verifiers, to maintain their local copy of the rollup state (in the absence of fraud).
+	MODE_NORMAL TrieMode = 0
+
+	// MODE_GENERATE tries are used by verifiers to produce a PreState and PostStateProofs that could
+	// be used to form a challenge message.
+	MODE_GENERATE_FRAUD_PROOF TrieMode = 1
+
+	// MODE_PRE_VERIFY_FRAUD_PROOF tries are used by L1 nodes to verify a challenge messsage. Tries with
+	// this mode transition to MODE_VERIFY_FRAUD_PROOF after a successful call to
+	// LoadPreStateAndPostStateProofs.
 	MODE_PRE_VERIFY_FRAUD_PROOF TrieMode = 2
-	MODE_VERIFY_FRAUD_PROOF     TrieMode = 3
-	MODE_FAILED_FRAUD_PROOF     TrieMode = 4
-	MODE_DEAD                   TrieMode = 5
+
+	// MODE_VERIFY_FRAUD_PROOF is an internal implementation detail. One
+	// may not construct a Trie with this type.
+	MODE_VERIFY_FRAUD_PROOF TrieMode = 3
+
+	// MODE_FAILED_FRAUD_PROOF tries were originally MODE_PRE_VERIFY_FRAUD_PROOF tries that experienced
+	// some failure during fraud proof verification caused by the fact that the challenge message is invalid.
+	MODE_FAILED_FRAUD_PROOF TrieMode = 4
+
+	// MODE_DEAD tries were originally MODE_GENERATE_FRAUD_PROOF or MODE_PRE_VERIFY_FRAUD_PROOF tries that
+	// have reached the end of their lifecycle and should not be used anymore.
+	MODE_DEAD TrieMode = 5
 )
+
+// PreState initializes a MODE_PRE_VERIFY_FRAUD_PROOF trie in an authenticated manner.
+type PreState struct {
+	kvPairs []KVPair
+	phPairs []PHPair
+}
+
+// PostStateProof authenticates a single mutation (Set) during fraud proof execution.
+type PostStateProof struct {
+	phPairs      []PHPair
+	proofKVPairs []KVPair
+}
+
+func newPreState() PreState {
+	return PreState{
+		kvPairs: make([]KVPair, 0),
+		phPairs: make([]PHPair, 0),
+	}
+}
+
+func newPostStateProofs() []PostStateProof {
+	return make([]PostStateProof, 0)
+}
 
 // KVPair stands for "Key, Value Pair". KVPairs are inserted into Trie using Put.
 type KVPair struct {
@@ -83,32 +132,6 @@ type KVPair struct {
 type PHPair struct {
 	path []Nibble
 	hash []byte
-}
-
-type PreState struct {
-	kvPairs []KVPair
-	phPairs []PHPair
-}
-
-func newPreState() PreState {
-	return PreState{
-		kvPairs: make([]KVPair, 0),
-		phPairs: make([]PHPair, 0),
-	}
-}
-
-// PostStateProof 'proves' a single mutation (Set) during fraud proof execution.
-type PostStateProof struct {
-	phPairs      []PHPair
-	proofKVPairs []KVPair
-}
-
-// PostStateProofs is a slice of PostStateProof. Its length must be exactly the number of mutations
-// done by the fraudulent transaction.
-type PostStateProofs []PostStateProof
-
-func newPostStateProofs() PostStateProofs {
-	return make([]PostStateProof, 0)
 }
 
 // NewTrie returns an empty Trie in the specified mode. A Trie, once constructed, cannot have its
@@ -444,7 +467,7 @@ func (t *Trie) RootHash() []byte {
 //
 // # Panics
 // Panics if called when t.mode != MODE_GENERATE_FRAUD_PROOF.
-func (t *Trie) GetPreStateAndPostStateProofs() (PreState, PostStateProofs) {
+func (t *Trie) GetPreStateAndPostStateProofs() (PreState, []PostStateProof) {
 	if t.mode != MODE_GENERATE_FRAUD_PROOF {
 		panic("attempted to GetPreAndPseudoPostState, but Trie is not in generate fraud proof mode.")
 	}
@@ -543,7 +566,7 @@ func (t *Trie) GetPreStateAndPostStateProofs() (PreState, PostStateProofs) {
 //
 // # Panics
 // Panics if called when t.mode != MODE_PRE_VERIFY_FRAUD_PROOF.
-func (t *Trie) LoadPreAndPostState(preState PreState, postStateProofs PostStateProofs, expectedPreStateHash []byte) (preStateError error) {
+func (t *Trie) LoadPreAndPostState(preState PreState, postStateProofs []PostStateProof, expectedPreStateHash []byte) (preStateError error) {
 	if t.mode != MODE_PRE_VERIFY_FRAUD_PROOF {
 		panic("")
 	}
