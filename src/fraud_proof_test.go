@@ -135,7 +135,10 @@ func TestPutProofNode(t *testing.T) {
 		trie2 := NewTrie(MODE_PRE_VERIFY_FRAUD_PROOF)
 
 		// Create PreState
-		preState := newPreState()
+		preState := PreState{
+			kvPairs: make([]KVPair, 0),
+			phPairs: make([]PHPair, 0),
+		}
 
 		// Insert read key-value pairs: leftRightLeaf.value and rightBranch.value
 		preState.kvPairs = append(preState.kvPairs, KVPair{key: []byte{00, 00, 00, 00, 01, 00, 00, 00}, value: leftRightLeaf.value})
@@ -149,7 +152,7 @@ func TestPutProofNode(t *testing.T) {
 
 		err := trie2.LoadPreAndPostState(
 			preState,
-			newPostStateProofs(),
+			make([]PostStateProof, 0),
 			trie1.RootHash(),
 		)
 		require.NoError(t, err)

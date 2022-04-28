@@ -99,43 +99,40 @@ const (
 	MODE_DEAD TrieMode = 5
 )
 
-// PreState initializes a MODE_PRE_VERIFY_FRAUD_PROOF trie in an authenticated manner.
+// PreState initializes a MODE_PRE_VERIFY_FRAUD_PROOF trie in an 'authenticated' manner. To be precise, by 'authenticated' we mean
+// that a Probabilistic Polynomial Time (PPT) adversary cannot feasibly produce two PreStates with the same root hashes, but
+// contain conflicting key-value pairs.
 type PreState struct {
 	kvPairs []KVPair
 	phPairs []PHPair
 }
 
-// PostStateProof authenticates a single mutation (Set) during fraud proof execution.
+// PostStateProof authenticates a single mutation (Set) during fraud proof execution. To be precise, by 'authenticated', we mean that
+// a Probabilistic Polynomial Time (PPT) adversary cannot feasibly produce two PostStateProofs for the same Put that produces different
+// 'stray tries' but with the same root hash.
 type PostStateProof struct {
 	phPairs      []PHPair
 	proofKVPairs []KVPair
 }
 
-func newPreState() PreState {
-	return PreState{
-		kvPairs: make([]KVPair, 0),
-		phPairs: make([]PHPair, 0),
-	}
-}
-
-func newPostStateProofs() []PostStateProof {
-	return make([]PostStateProof, 0)
-}
-
-// KVPair stands for "Key, Value Pair". KVPairs are inserted into Trie using Put.
+// KVPair stands for "Key, Value Pair". KVPairs are inserted into Trie using Put during Normal operation, fraud proof generation
+// and execution, PreState authentication, and PostState authentication.
 type KVPair struct {
 	key   []byte
 	value []byte
 }
 
-// PHPair stands for "Path, Hash Pair". PHPairs are inserted into Trie using putProofNode.
+// PHPair stands for "Path, Hash Pair". PHPairs are inserted into Trie using putProofNode during fraud proof generation and execution,
+// PreState authentication, and PostState authentication.
 type PHPair struct {
 	path []Nibble
 	hash []byte
 }
 
 // NewTrie returns an empty Trie in the specified mode. A Trie, once constructed, cannot have its
-// mode explicitly changed.
+// mode changed except as a documented side-effect of Trie methods (e.g., LoadPreStateAndPostStateProofs)
+// transitions a mode == MODE_PRE_VERIFY_FRAUD_PROOF into mode == MODE_VERIFY_FRAUD_PROOF is completed
+// successfully.
 func NewTrie(mode TrieMode) *Trie {
 	if mode != MODE_NORMAL && mode != MODE_GENERATE_FRAUD_PROOF && mode != MODE_VERIFY_FRAUD_PROOF && mode != MODE_PRE_VERIFY_FRAUD_PROOF {
 		panic("attempted to create a new trie with an invalid mode.")
@@ -147,7 +144,7 @@ func NewTrie(mode TrieMode) *Trie {
 	}
 }
 
-// Get returns the value associated with key in the Trie, if it exists, and nil if does not.
+// Get returns the value associated with key in the Trie if it exists, and nil if does not.
 func (t *Trie) Get(key []byte) []byte {
 	if t.mode == MODE_DEAD {
 		panic("attempted to use dead Trie. Read Trie documentation.")
@@ -199,7 +196,6 @@ func (t *Trie) Get(key []byte) []byte {
 
 		return value
 	case t.mode == MODE_VERIFY_FRAUD_PROOF:
-		// TODO [Alice]: differentiate between incomplete PreState and actually non-existent KV pair.
 		value, encounteredProofNode := t.getNormally(key)
 		if encounteredProofNode {
 			t.failedFraudProofReason = fmt.Errorf("incomplete PreState")
@@ -475,7 +471,10 @@ func (t *Trie) GetPreStateAndPostStateProofs() (PreState, []PostStateProof) {
 	/////////////////////////
 	// 1. Generate PreState
 	/////////////////////////
-	preState := newPreState()
+	preState := PreState{
+		kvPairs: make([]KVPair, 0),
+		phPairs: make([]PHPair, 0),
+	}
 	shadowTrie := NewTrie(MODE_VERIFY_FRAUD_PROOF)
 	for _, kvPair := range t.readSet {
 		// 1.1. Use shadowTrie to get the path to the root of the 'Stray Trie', the subtrie of (t *Trie)
@@ -519,7 +518,7 @@ func (t *Trie) GetPreStateAndPostStateProofs() (PreState, []PostStateProof) {
 	///////////////////////////////
 	// 2. Generate PostStateProof
 	///////////////////////////////
-	postStateProofs := newPostStateProofs()
+	postStateProofs := make([]PostStateProof, 0)
 	for _, kvPair := range t.writeList {
 		// 2.1. Use shadowTrie to get the path to the root of the Stray Trie
 		strayTrieRootPath := getStrayTrieRootPath(kvPair.key, shadowTrie)
